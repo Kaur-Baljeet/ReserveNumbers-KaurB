@@ -1,0 +1,34 @@
+name: Query SQLite Log DB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  query-log:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure SQLite DB exists
+        run: |
+          if [ ! -f log.db ]; then
+            echo "Creating log.db..."
+            sqlite3 log.db "CREATE TABLE IF NOT EXISTS Log (
+              Parameter TEXT,
+              Value INTEGER,
+              ID TEXT,
+              User TEXT,
+              Time TEXT,
+              Detail TEXT
+            );"
+          else
+            echo "log.db already exists."
+          fi
+
+      - name: Display Log Table Contents
+        run: |
+            sqlite3 -header -column log.db "SELECT * FROM Log;" > log_output.txt
+            cat log_output.txt
+

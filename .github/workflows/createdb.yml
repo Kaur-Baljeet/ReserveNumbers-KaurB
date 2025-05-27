@@ -1,0 +1,33 @@
+name: Create SQLite DB
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-db:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create SQLite database
+        run: |
+          sqlite3 log.db <<EOF
+          CREATE TABLE IF NOT EXISTS Log (
+              Parameter TEXT,
+              Value INTEGER,
+              ID TEXT,
+              User TEXT,
+              Time TEXT,
+              Detail TEXT
+          );
+          EOF
+
+      - name: Commit database file
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add log.db
+          git commit -m "Add SQLite database with Log table"
+          git push

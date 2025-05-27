@@ -1,0 +1,155 @@
+ name: Reserve Unique Number
+
+ on:
+   workflow_dispatch:
+     inputs:
+       job-id:
+        description: 'Enter the Job ID'
+        required: true
+        type: string
+       key:
+         description: 'Select a Variable/Object'
+         required:  true
+         type: choice
+         options:
+           - Conversion
+           - Report Pack
+           - Table Shape
+           - Table Method
+           - Table Section
+           - Object Number
+           - Optional Category Report
+           - Report Pack
+           - Feature Code
+           - JJ
+       jj-use:
+        description: 'Select the Use (only for JJ)'
+        required: false
+        type: choice
+        default: 'Assumption'
+        options:
+           - Assumption
+           - Calculated
+       jj-mod:
+        description: 'Select the Module (only for JJ)'
+        required: false
+        type: choice
+        default: '0'
+        options:
+           - '0'
+           - R
+           - U
+           - P
+           - H
+           - X
+           - M
+           - G
+           - I
+           - D
+       jj-id:
+        description: 'Enter the Identifier (only for JJ)'
+        required: false
+        default: ''
+        
+ jobs:
+   increment:
+     runs-on: ubuntu-latest
+
+     steps:
+     - name: Validate JJ Assumption
+       if: ${{ github.event.inputs.key == 'JJ' && github.event.inputs.jj-use == 'Assumption' }}
+       run: |
+        jj_id="${{ github.event.inputs.jj-id }}"
+        if [[ ! "$jj_id" =~ ^JJ ]]; then
+          echo "Error: The JJ Identifier must start with 'JJ' when the use is Assumption."
+          exit 1
+        fi
+        if [[ "${#jj_id}" -gt 10 ]]; then
+          echo "Error: The JJ Identifier must not exceed 10 characters (including 'JJ') when the use is Assumption."
+          exit 1
+        fi
+       shell: bash
+
+     - name: Validate JJ Calculated
+       if: ${{ github.event.inputs.key == 'JJ' && github.event.inputs.jj-use == 'Calculated' }}
+       run: |
+        jj_id="${{ github.event.inputs.jj-id }}"
+        if [[ ! "$jj_id" =~ ^JJJ_ ]]; then
+          echo "Error: The JJ Identifier must start with 'JJJ_' when the use is Calculated."
+          exit 1
+        fi
+        if [[ "${#jj_id}" -gt 10 ]]; then
+          echo "Error: The JJ Identifier must not exceed 10 characters (including 'JJJ_') when the use is Calculated."
+          exit 1
+        fi
+       shell: bash
+
+     - name: Split JJ Identifier
+       id: split
+       run: |
+        jj_id="${{ github.event.inputs.jj-id }}"
+        jj_use="${{ github.event.inputs.jj-use }}"
+        split_id=""
+        if [[ "${{ github.event.inputs.key }}" == 'JJ' ]]; then
+          if [[ "$jj_use" == 'Assumption' ]]; then
+            split_id=${jj_id#JJ}
+          else
+            split_id=${jj_id#JJJ_}
+          fi
+        fi 
+        echo "id=$(echo "$split_id" | xargs)" >> "$GITHUB_OUTPUT"
+
+     - name: Check Non Empty JJ Identifier
+       if: ${{ github.event.inputs.key == 'JJ' }}
+       run: |
+        if [[ "${{ steps.split.outputs.id }}" == '' ]]; then
+          echo "Error: The JJ Identifier must have at least one character after the prefix."
+          exit 1
+        fi
+       
+     - name: Checkout repository
+       uses: actions/checkout@v4
+
+     - name: Check Existing JJ Identifier
+       if: ${{ github.event.inputs.key == 'JJ' }}
+       run: |
+        pip install csvkit
+        jj_id="${{ steps.split.outputs.id }}"
+        jj_mod="${{ github.event.inputs.jj-mod }}"
+        result=$(csvsql --skip-lines 1 --no-header-row --query "SELECT COUNT(*) AS Matches FROM Log WHERE a = 'JJ_$jj_mod' AND f = '$jj_id'" Log.csv | tail -n 1 | xargs)
+        if [ "$result" -gt 0 ]; then
+          echo "Error: The JJ Identifier '$jj_id' is already in use for the module $jj_mod."
+          exit 1
+        fi
+
+     - name: Read and Increment
+       id: increment
+       run: |
+         inc=1
+         user_input="${{ github.event.inputs.key }}"
+         if [[ "$user_input" == 'Conversion' ]]; then
+           inc=10
+         fi
+         current_value=$(jq -r --arg name_variable "$user_input" '.[$name_variable]' Variables.json)
+         updated_value=$((current_value + inc))         
+         jq --arg name_variable "$user_input" --argjson value_variable "$updated_value" '.[$name_variable] = $value_variable' Variables.json > tmp.json && mv tmp.json Variables.json
+         echo "new_value=$updated_value" >> "$GITHUB_OUTPUT"
+
+     - name: Log
+       id: log
+       run: |
+        if [ "${{ github.event.inputs.key }}" = "JJ" ]; then
+         parameter="JJ_${{ github.event.inputs.jj-mod }}"
+        else
+         parameter="${{ github.event.inputs.key }}"
+        fi
+        echo "$parameter,${{ steps.increment.outputs.new_value }},${{ github.event.inputs.job-id}},${{ github.actor }}",$(TZ="America/Toronto" date +"%d/%m/%Y %I:%M %p"),${{ steps.split.outputs.id }} >> Log.csv
+
+     - name: Commit changes
+       run: |
+         git config --global user.name 'github-actions'
+         git config --global user.email 'github-actions@github.com'
+         git add Variables.json
+         git add Log.csv
+         git commit -m "${{ github.event.inputs.job-id }}: Increment ${{ github.event.inputs.key }} to ${{ steps.increment.outputs.new_value }}"
+         git push
