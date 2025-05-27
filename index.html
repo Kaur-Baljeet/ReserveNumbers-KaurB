@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LookUp Records</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/plugin/customParseFormat.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+        }
+
+        .filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+
+        .filter-row label {
+            display: flex;
+            flex-direction: column;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .filter-row input {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 140px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 10px 5px;
+            font-size: 14px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #table-container {
+            margin-top: 20px;
+        }
+
+        table.dataTable {
+            width: 100% !important;
+            border-collapse: collapse;
+        }
+
+        table.dataTable th,
+        table.dataTable td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        table.dataTable thead {
+            background-color: #f1f1f1;
+        }
+
+        .dataTables_wrapper .dataTables_filter {
+            float: right;
+            text-align: right;
+        }
+
+        .dataTables_wrapper .dataTables_paginate {
+            float: right;
+            text-align: right;
+        }
+
+        .flatpickr-time {
+            background-color: #fff !important;
+            color: #000 !important;
+            font-size: 14px !important;
+        }
+
+        .flatpickr-time input {
+            background-color: #fff !important;
+            color: #000 !important;
+            border: 1px solid #ccc !important;
+        }
+    </style>
+</head>
+<body>
+    <h1>Log Records</h1>
+    <div class="filter-row">
+        <label>Parameter<input type="text" id="Parameter"></label>
+        <label>Value<input type="text" id="Value"></label>
+        <label>JIRA Id<input type="text" id="JiraId"></label>
+        <label>User<input type="text" id="User"></label>
+        <label>From Time<input type="text" id="FromTime" class="datetime"></label>
+        <label>To Time<input type="text" id="ToTime" class="datetime"></label>
+        <label>Detail<input type="text" id="Detail"></label>
+    </div>
+
+    <button onclick="FilterData()">Search</button>
+
+    <div id="table-container"></div>
+
+    <script>
+        let records = [];
+        let filteredData = [];
+
+        // From Time picker
+        flatpickr("#FromTime", {
+            dateFormat: "Y-m-d H:i",
+            enableTime: true,
+            defaultHour: 0,
+            defaultMinute: 0,
+            allowInput: true
+        });
+
+        // To Time picker
+        flatpickr("#ToTime", {
+            dateFormat: "Y-m-d H:i",
+            enableTime: true,
+            defaultHour: 23,
+            defaultMinute: 59,
+            allowInput: true,
+            onChange: function (selectedDates, dateStr, instance) {
+                if (selectedDates.length > 0) {
+                    const date = selectedDates[0];
+                    date.setHours(23);
+                    date.setMinutes(59);
+                    instance.setDate(date, true);
+                }
+            }
+        });
+
+        Papa.parse('Log.csv', {
+            download: true,
+            header: true,
+            complete: function (results) {
+                records = results.data.filter(row => Object.values(row).some(val => val));
+                FilterData();
+            },
+            error: function (error) {
+                console.error('Failed to load CSV:', error);
+            }
+        });
+
+        dayjs.extend(dayjs_plugin_customParseFormat);
+
+        function renderTable(data) {
+            $("#table-container").html(`<table id="dataTable" class="display"><thead></thead><tbody></tbody></table>`);
+
+            if (data.length == 0) {
+                $("#dataTable").html("<p>No matching records found.</p>");
+                return;
+            }
+
+            const keys = Object.keys(data[0]);
+            let thead = "<tr>" + keys.map(k => `<th>${k}</th>`).join('') + "</tr>";
+            let tbody = data.map(row => {
+                return "<tr>" + keys.map(k => `<td>${row[k]}</td>`).join('') + "</tr>";
+            }).join('');
+
+            $('#dataTable thead').html(thead);
+            $('#dataTable tbody').html(tbody);
+            $('#dataTable').dataTable();
+        }
+
+        function FilterData() {
+            const Param = $("#Parameter").val().toLowerCase();
+            const Val = $("#Value").val().toLowerCase();
+            const Jira = $("#JiraId").val().toLowerCase();
+            const UserName = $("#User").val().toLowerCase();
+            const FromTimeT = $("#FromTime").val();
+            const ToTimeT = $("#ToTime").val();
+            const Details = $("#Detail").val().toLowerCase();
+
+            const fromTime = FromTimeT ? dayjs(FromTimeT, "YYYY-MM-DD HH:mm").toDate() : null;
+            const toTime = ToTimeT ? dayjs(ToTimeT, "YYYY-MM-DD HH:mm").toDate() : null;
+
+            filteredData = records.filter(row => {
+                const rowTime = dayjs(row["Time"], "DD/MM/YYYY hh:mm A").toDate();
+
+                return (!Param || (row["Parameter"] || "").toLowerCase().includes(Param)) &&
+                    (!Val || (row["Value"] || "").toLowerCase().includes(Val)) &&
+                    (!Jira || (row["ID"] || "").toLowerCase().includes(Jira)) &&
+                    (!UserName || (row["User"] || "").toLowerCase().includes(UserName)) &&
+                    (!Details || (row["Detail"] || "").toLowerCase().includes(Details)) &&
+                    (!fromTime || (rowTime && rowTime >= fromTime)) &&
+                    (!toTime || (rowTime && rowTime <= toTime));
+            });
+
+            renderTable(filteredData);
+        }
+    </script>
+</body>
+</html>
