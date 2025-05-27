@@ -1,0 +1,103 @@
+name: Add New Error or Warning Message
+
+on:
+  workflow_dispatch:
+    inputs:
+      msg-type:
+        description: 'Select a Type'
+        required:  true
+        type: choice
+        options:
+          - Non-Seriatim
+          - Hedge Manager
+          - Seriatim
+          - Scenario Tools
+          - Formula Table
+      job-id:
+        description: 'Enter the Job ID'
+        required: true
+        type: string
+      comment:
+        description: 'Enter a Comment'
+        required: false
+        type: string
+        default: ''
+      help-id:
+        description: 'Enter the Help ID'
+        required: false
+        type: string
+        default: ''
+      text:
+        description: 'Enter the Message Text (80 chars max)'
+        required: true
+        type: string
+      walkthrough:
+        description: 'Enter a Walkthrough'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trim text
+        id: trim-text
+        run: |
+          trimmed_text=$(echo "${{ github.event.inputs.text }}" | xargs)
+          echo "trimmed_text=$trimmed_text" >> "$GITHUB_OUTPUT"
+          trimmed_job_id=$(echo "${{ github.event.inputs.job-id }}" | xargs)
+          echo "trimmed_job_id=$trimmed_job_id" >> "$GITHUB_OUTPUT"
+          trimmed_help_id=$(echo "${{ github.event.inputs.help-id }}" | xargs)
+          echo "trimmed_help_id=$trimmed_help_id" >> "$GITHUB_OUTPUT"
+          trimmed_comment=$(echo "${{ github.event.inputs.comment }}" | xargs)
+          echo "trimmed_comment=$trimmed_comment" >> "$GITHUB_OUTPUT"
+          trimmed_walkthrough=$(echo "${{ github.event.inputs.walkthrough }}" | xargs)
+          echo "trimmed_walkthrough=$trimmed_walkthrough" >> "$GITHUB_OUTPUT"
+
+      - name: Validate text non empty
+        run: |
+          if [[ -z "${{ steps.trim-text.outputs.trimmed_text }}" ]]; then
+            echo "Error: The text must not be empty."
+            exit 1
+          fi
+
+      - name: Validate text length
+        run: |
+          msg_txt="${{ steps.trim-text.outputs.trimmed_text }}"
+          if [[ "${#msg_txt}" -gt 80 ]]; then
+            echo "Error: The text must not be longer than 80 characters."
+            exit 1
+          fi
+        
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get next number
+        id: get-id
+        run: |
+          msg_type="${{ github.event.inputs.msg-type }}"
+          curr_msg_id=$(jq -r --arg name_variable "$msg_type" '.[$name_variable]' Variables.json)
+          max_msg_id=$(jq -r --arg name_variable "$msg_type Max" '.[$name_variable]' Variables.json)
+          new_msg_id=$((curr_msg_id + 1))
+          if [ "$new_msg_id" -gt "$max_msg_id" ]; then
+            new_msg_id=$((new_msg_id + 40000))
+            max_msg_id=$((max_msg_id + 50000))
+          fi       
+          jq --arg name_variable "$msg_type" --argjson value_variable "$new_msg_id" '.[$name_variable] = $value_variable' Variables.json > tmp.json && mv tmp.json Variables.json
+          jq --arg name_variable "$msg_type Max" --argjson value_variable "$max_msg_id" '.[$name_variable] = $value_variable' Variables.json > tmp.json && mv tmp.json Variables.json
+          echo "msg_id=$new_msg_id" >> "$GITHUB_OUTPUT"
+
+      - name: Add message
+        run: |
+          echo "${{ steps.get-id.outputs.msg_id }},${{ steps.trim-text.outputs.trimmed_text }},0,${{ steps.trim-text.outputs.trimmed_help_id }},${{ steps.trim-text.outputs.trimmed_walkthrough }}" >> TextDef.csv
+
+      - name: Commit changes
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+          git add Variables.json
+          git add TextDef.csv
+          git commit -m "ID ${{ steps.trim-text.outputs.trimmed_job_id }}: New ${{ github.event.inputs.msg-type }} message with ID ${{ steps.get-id.outputs.msg_id }}" -m "${{ steps.trim-text.outputs.trimmed_comment }}"
+          git push
